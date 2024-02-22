@@ -5,6 +5,10 @@ from pfs.datamodel import PfsFiberArray
 from pfs.datamodel import PfsTable, Column
 from pfs.datamodel.utils import inheritDocstrings
 
+from .gaFluxTable import GAFluxTable
+from .abundances import Abundances
+from .stellarParams import StellarParams
+from .velocityCorrections import VelocityCorrections
 
 __all__ = [
     "PfsGAObject"
@@ -25,6 +29,10 @@ class PfsGAObject(PfsFiberArray):
     filenameKeys = [("catId", int), ("tract", int), ("patch", str), ("objId", int),
                     ("nVisit", int), ("pfsVisitHash", int)]
     NotesClass = PfsGAObjectNotes
+    FluxTableClass = GAFluxTable
+
+    StellarParamsFitsExtName = "PARCOVAR"
+    AbundancesFitsExtName = "ABNDCOVAR"
 
     def __init__(
         self,
@@ -39,16 +47,52 @@ class PfsGAObject(PfsFiberArray):
         flags,
         metadata=None,
         fluxTable=None,
-        velocityMeasurements=None,
-        abundanceMeasurements=None,
+        stellarParams=None,
+        velocityCorrections=None,
+        abundances=None,
+        paramsCovar=None,
+        abundCovar=None,
         notes: Notes = None,
     ):
-        # TODO: write parameters for there once settled on the member list
-        self.paramCovar = None
-        self.abundCovar = None
-
         super().__init__(target, observations, wavelength, flux, mask, sky, covar, covar2, flags, metadata=metadata, fluxTable=fluxTable, notes=notes)
 
+        self.stellarParams = stellarParams
+        self.velocityCorrections = velocityCorrections
+        self.abundances = abundances
+        self.paramsCovar = paramsCovar
+        self.abundCovar = abundCovar
 
+    def validate(self):
+        """Validate that all the arrays are of the expected shape"""
+        super().validate()
 
+        # TODO: write any validation code
 
+    @classmethod
+    def _readImpl(cls, fits):
+        data = super()._readImpl(fits)
+
+        data["stellarParams"] = StellarParams.readHdu(fits)
+        data["velocityCorrections"] = VelocityCorrections.readHdu(fits)
+        data["abundances"] = Abundances.readHdu(fits)
+        if cls.StellarParamsFitsExtName in fits:
+            data["paramsCovar"] = fits[cls.StellarParamsFitsExtName].data.astype(np.float32)
+        if cls.AbundancesFitsExtName in fits:
+            data["abundCovar"] = fits[cls.AbundancesFitsExtName].data.astype(np.float32)
+
+        return data
+
+    def _writeImpl(self, fits):
+        from astropy.io.fits import ImageHDU
+
+        header = super()._writeImpl(fits)
+
+        self.stellarParams.writeHdu(fits)
+        self.velocityCorrections.writeHdu(fits)
+        self.abundances.writeHdu(fits)
+        if self.paramsCovar is not None:
+            fits.append(ImageHDU(self.paramsCovar.astype(np.float32), header=header, name=self.StellarParamsFitsExtName))
+        if self.abundCovar is not None:
+            fits.append(ImageHDU(self.abundCovar.astype(np.float32), header=header, name=self.AbundancesFitsExtName))
+
+        return header

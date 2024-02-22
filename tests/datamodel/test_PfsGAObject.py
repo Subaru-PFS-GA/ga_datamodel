@@ -1,3 +1,4 @@
+import os
 import re
 import numpy as np
 from unittest import TestCase
@@ -5,14 +6,97 @@ from unittest import TestCase
 from pfs.datamodel import Target, TargetType
 from pfs.datamodel import Observations
 from pfs.datamodel import MaskHelper
-from pfs.datamodel import FluxTable
-from pfs.ga.datamodel import PfsGAObject, StellarParams, Abundances, Velocities, VelocityCorrections
+from pfs.ga.datamodel import GAFluxTable
+from pfs.ga.datamodel import PfsGAObject, StellarParams, Abundances, VelocityCorrections
 
 class PfsGAObjectTestCase(TestCase):
     """ Check the format of example datamodel files are
         consistent with that specified in the corresponding
         datamodel classes.
     """
+
+    def getDummy(self):
+        catId = 12345
+        tract = 1
+        patch = '1,1'
+        objId = 123456789
+        ra = -100.63654
+        dec = -68.591576
+        targetType = TargetType.SCIENCE
+
+        target = Target(catId, tract, patch, objId, ra, dec, targetType)
+
+        visit = np.array([ 83219, 83220 ])
+        arm = np.array([ 'b', 'm', ])
+        spectrograph = np.array([1, 1])
+        pfsDesignId = np.array([8854764194165386399, 8854764194165386400])
+        fiberId = np.array([476, 476])
+        pfiNominal = np.array([[ra, dec], [ra, dec]])
+        pfiCenter = np.array([[ra, dec], [ra, dec]])
+
+        observations = Observations(visit, arm, spectrograph, pfsDesignId, fiberId, pfiNominal, pfiCenter)
+
+        npix = 4096
+        wavelength = np.concatenate([
+            np.linspace(380, 650, npix, dtype=np.float32),
+            np.linspace(710, 885, npix, dtype=np.float32)
+        ])
+        flux = np.zeros_like(wavelength)
+        error = np.zeros_like(wavelength)
+        norm = np.zeros_like(wavelength)
+        norm_error = np.zeros_like(wavelength)
+        cont = np.zeros_like(wavelength)
+        model = np.zeros_like(wavelength)
+        mask = np.zeros_like(wavelength, dtype=np.int32)
+        sky = np.zeros_like(wavelength)
+        covar = np.zeros((3, wavelength.size), dtype=np.float32)    # Tridiagonal covariance matrix of flux
+        covar2 = np.zeros((1, 1), dtype=np.float32)                 # ?
+
+        flags = MaskHelper()                                        # {'BAD': 0, 'BAD_FIBERTRACE': 11, 'BAD_FLAT': 9, 'BAD_FLUXCAL': 13, 'BAD_SKY': 12, 'CR': 3, 'DETECTED': 5, 'DETECTED_NEGATIVE': 6, 'EDGE': 4, 'FIBERTRACE': 10, 'INTRP': 2, 'IPC': 14, 'NO_DATA': 8, 'REFLINE': 15, 'SAT': 1, 'SUSPECT': 7, 'UNMASKEDNAN': 16})
+        metadata = {}                                               # Key-value pairs to put in the header
+        fluxTable = GAFluxTable(wavelength, flux, error, norm, norm_error, cont, model, mask, flags)
+
+        stellarParams = StellarParams(
+            method=np.array(['rvfit', 'rvfit', 'rvfit', 'rvfit', 'rvfit']),
+            frame=np.array(['helio', '', '', '', '']),
+            param=np.array(['v_los', 'Fe_H', 'T_eff', 'log_g', 'a_Fe']),
+            covarId=np.array([0, 1, 2, 3, 4]),
+            unit=np.array(['km s-1', 'dex', 'K', '', 'dex']),
+            value=np.array([0.0, 0.0, 0.0, 0.0, 0.0]),
+            valueErr=np.array([0.0, 0.0, 0.0, 0.0, 0.0]),
+            flag=np.array([False, False, False, False, False]),
+            status=np.array(['', '', '', '', '']),
+        )
+
+        velocityCorrections = VelocityCorrections(
+            visit=visit,
+            JD=np.zeros_like(visit, dtype=np.float32),
+            helio=np.zeros_like(visit, dtype=np.float32),
+            bary=np.zeros_like(visit, dtype=np.float32),
+        )
+
+        abundances = Abundances(
+            method=np.array(['chemfit', 'chemfit', 'chemfit']),
+            element=np.array(['Mg', 'Ti', 'Si']),
+            covarId=np.array([0, 1, 2]),
+            value=np.array([0.0, 0.0, 0.0]),
+            valueErr=np.array([0.0, 0.0, 0.0]),
+        )
+
+        paramsCovar = np.eye(3, dtype=np.float32)
+        abundCovar = np.eye(4, dtype=np.float32)
+        notes = None
+
+        return PfsGAObject(target, observations,
+                                  wavelength, flux, mask, sky, covar, covar2,
+                                  flags, metadata,
+                                  fluxTable,
+                                  stellarParams,
+                                  velocityCorrections,
+                                  abundances,
+                                  paramsCovar,
+                                  abundCovar,
+                                  notes)
 
     def extractAttributes(self, cls, fileName):
         matches = re.search(cls.filenameRegex, fileName)
@@ -39,7 +123,7 @@ class PfsGAObjectTestCase(TestCase):
             d[kk] = ii
         return d
     
-    def test_FilenameRegex(self):
+    def test_filenameRegex(self):
         d = self.extractAttributes(
                 PfsGAObject,
                 'pfsGAObject-07621-01234-2,2-02468ace1234abcd-003-0x0123456789abcdef.fits')
@@ -50,71 +134,32 @@ class PfsGAObjectTestCase(TestCase):
         self.assertEqual(d['nVisit'], 3)
         self.assertEqual(d['pfsVisitHash'], 81985529216486895)
 
-    def test_Write(self):
+    def test_getIdentity(self):
+        """Construct a PfsGAObject and get its identity."""
+
+        pfsGAObject = self.getDummy()
+        identity = pfsGAObject.getIdentity()
+        filename = pfsGAObject.filenameFormat % identity
+
+        self.assertEqual('pfsGAObject-12345-00001-1,1-00000000075bcd15-002-0x05a95bc24d8ce16f.fits', filename)
+
+    def test_validate(self):
+        """Construct a PfsGAObject and run validation."""
+
+        pfsGAObject = self.getDummy()
+        pfsGAObject.validate()
+
+    def test_writeFits(self):
         """Construct a PfsGAObject and save it to a FITS file."""
 
-        catId = 12345
-        tract = 1
-        patch = '1,1'
-        objId = 123456789
-        ra = -100.63654
-        dec = -68.591576
-        targetType = TargetType.SCIENCE
+        pfsGAObject = self.getDummy()
+        pfsGAObject.writeFits(os.path.expandvars('${PFS_GA_TEMP}pfsGAObject.fits'))
 
-        target = Target(catId, tract, patch, objId, ra, dec, targetType)
+    def test_fromFits(self):
+        """Load a PfsGAObject from a FITS file."""
 
-        visit = np.array([ 83219, 83219 ])
-        arm = np.array([ 'b', 'm', ])
-        spectrograph = np.array([1, 1])
-        pfsDesignId = np.array([8854764194165386399, 8854764194165386399])
-        fiberId = np.array([476, 476])
-        pfiNominal = np.array([[ra, dec], [ra, dec]])
-        pfiCenter = np.array([[ra, dec], [ra, dec]])
+        pfsGAObject = PfsGAObject.readFits(os.path.expandvars('${PFS_GA_TEMP}pfsGAObject.fits'))
 
-        observations = Observations(visit, arm, spectrograph, pfsDesignId, fiberId, pfiNominal, pfiCenter)
+        # TODO: add assertions
 
-        npix = 4096
-        wavelength = np.concatenate([
-            np.linspace(380, 650, npix, dtype=np.float32),
-            np.linspace(710, 885, npix, dtype=np.float32)
-        ])
-        flux = np.zeros_like(wavelength)
-        error = np.zeros_like(wavelength)
-        mask = np.zeros_like(wavelength, dtype=np.int32)
-        sky = np.zeros_like(wavelength)
-        covar = np.zeros((3, wavelength.size), dtype=np.float32)    # Tridiagonal covariance matrix of flux
-        covar2 = np.zeros((1, 1), dtype=np.float32)                 # ?
-
-        flags = MaskHelper() # {'BAD': 0, 'BAD_FIBERTRACE': 11, 'BAD_FLAT': 9, 'BAD_FLUXCAL': 13, 'BAD_SKY': 12, 'CR': 3, 'DETECTED': 5, 'DETECTED_NEGATIVE': 6, 'EDGE': 4, 'FIBERTRACE': 10, 'INTRP': 2, 'IPC': 14, 'NO_DATA': 8, 'REFLINE': 15, 'SAT': 1, 'SUSPECT': 7, 'UNMASKEDNAN': 16})
-        metadata = {}                                               # Key-value pairs to put in the header
-
-        fluxTable = FluxTable(wavelength, flux, error, mask, flags)
-
-        velocities = Velocities(
-            method=np.array([]),
-            frame=np.array([]),
-            unit=np.array([]),
-            value=np.array([]),
-            valueErr=np.array([]),
-            flag=np.array([]),
-            status=np.array([]),
-        )
-
-        abundances = Abundances(
-            method=np.array([]),
-            element=np.array([]),
-            value=np.array([]),
-            valueErr=np.array([]),
-        )
-
-        pfsGAObject = PfsGAObject(target, observations,
-                                  wavelength, flux, mask, sky, covar, covar2,
-                                  flags, metadata,
-                                  fluxTable,
-                                  velocities,
-                                  abundances)
-
-        pfsGAObject.writeFits('/home/dobos/project/ga_datamodel/temp/pfsGAObject.fits')
-
-    def test_Read(self):
         pass

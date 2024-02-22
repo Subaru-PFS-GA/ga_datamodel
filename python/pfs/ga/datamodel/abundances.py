@@ -7,6 +7,7 @@ class Abundances(PfsTable):
     schema = [
         Column("method", str, "Abundance measurement method", ""),
         Column("element", str, "Chemical element the abundance is measured for", ""),
+        Column("covarId", np.uint8, "Param position within covariance matrix", -1),
         Column("value", np.float32, "Abundance value", np.nan),
         Column("valueErr", np.float32, "Abundance error", np.nan),
     ]
