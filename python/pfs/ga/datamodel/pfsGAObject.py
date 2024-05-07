@@ -31,8 +31,8 @@ class PfsGAObject(PfsFiberArray):
     NotesClass = PfsGAObjectNotes
     FluxTableClass = GAFluxTable
 
-    StellarParamsFitsExtName = "PARCOVAR"
-    AbundancesFitsExtName = "ABNDCOVAR"
+    StellarParamsFitsExtName = "STELLARCOVAR"
+    AbundancesFitsExtName = "ABUNDCOVAR"
 
     def __init__(
         self,

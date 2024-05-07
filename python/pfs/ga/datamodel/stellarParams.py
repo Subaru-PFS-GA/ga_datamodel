@@ -16,4 +16,4 @@ class StellarParams(PfsTable):
         Column("flag", bool, "Measurement flag (true means bad)", False),
         Column("status", str, "Measurement flags", ""),
     ]
-    fitsExtName = 'STPARAM'
+    fitsExtName = 'STELLARPARAM'
